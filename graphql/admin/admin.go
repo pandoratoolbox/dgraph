@@ -617,8 +617,14 @@ func NewServers(withIntrospection bool, globalEpoch map[uint64]*uint64,
 	if err != nil {
 		x.Panic(err)
 	}
-
-	resolvers := resolve.New(gqlSchema, resolverFactoryWithErrorMsg(errNoGraphQLSchema))
+	mmwconf := map[string]resolve.MutationMiddlewares{
+		"addUser": {resolve.AddUserMiddleware},
+	}
+	qmwconf := map[string]resolve.QueryMiddlewares{
+		"queryUser": {resolve.QueryUserMiddleware},
+	}
+	glog.Infoln("Initialized middlewares...")
+	resolvers := resolve.New(gqlSchema, resolverFactoryWithErrorMsg(errNoGraphQLSchema).WithQueryMiddlewareConfig(qmwconf).WithMutationMiddlewareConfig(mmwconf))
 	e := globalEpoch[x.GalaxyNamespace]
 	mainServer := NewServer()
 	mainServer.Set(x.GalaxyNamespace, e, resolvers)

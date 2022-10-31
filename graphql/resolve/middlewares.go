@@ -18,6 +18,8 @@ package resolve
 
 import (
 	"context"
+	"fmt"
+	"log"
 
 	"github.com/dgraph-io/dgraph/edgraph"
 	"github.com/dgraph-io/dgraph/graphql/schema"
@@ -28,6 +30,56 @@ import (
 
 // QueryMiddleware represents a middleware for queries
 type QueryMiddleware func(resolver QueryResolver) QueryResolver
+
+func QueryUserMiddleware(resolver QueryResolver) QueryResolver {
+	return QueryResolverFunc(func(ctx context.Context, query schema.Query) *Resolved {
+		fmt.Println("Processing QueryUseMiddleware")
+		glog.Infoln("Processing QueryUseMiddleware")
+		showDeleted := query.ArgValue("showDeleted")
+		if showDeleted != nil {
+			if showDeleted.(bool) {
+				return resolver.Resolve(ctx, query)
+			}
+		}
+		query.SetArgTo("not", map[string]interface{}{
+			"has": "deletedAt",
+		})
+		return resolver.Resolve(ctx, query)
+	})
+}
+
+func AddUserMiddleware(resolver MutationResolver) MutationResolver {
+	return MutationResolverFunc(func(ctx context.Context,
+		mutation schema.Mutation) (*Resolved, bool) {
+		glog.Infoln("Processing AddUserMiddleware")
+		// mutation.SetArgTo("upsert", true)
+		// input := mutation.ArgValue("input").(map[string]interface{})
+		// input["deletedAt"] = nil
+		// mutation.SetArgTo("input", input)
+		op, err := mutation.Operation().Schema().Operation(&schema.Request{
+			Variables: map[string]interface{}{
+				"username": mutation.ArgValue(schema.InputArgName).(map[string]interface{})["username"].(string),
+			},
+			Query: `updateUser(filter:{username:{eq:$username}}, remove:{deletedAt:null}){
+					user{
+						id
+					}
+				}`,
+		})
+
+		if err != nil {
+			log.Fatal(err)
+		}
+		mut := op.Mutations()
+		res, suc := resolver.Resolve(ctx, mut[0])
+		if suc {
+			return res, suc
+		}
+
+		resolved, success := resolver.Resolve(ctx, mutation)
+		return resolved, success
+	})
+}
 
 // MutationMiddleware represents a middleware for mutations
 type MutationMiddleware func(resolver MutationResolver) MutationResolver
@@ -43,17 +95,23 @@ type QueryMiddlewares []QueryMiddleware
 type MutationMiddlewares []MutationMiddleware
 
 // Then chains the middlewares and returns the final QueryResolver.
-//     QueryMiddlewares{m1, m2, m3}.Then(r)
+//
+//	QueryMiddlewares{m1, m2, m3}.Then(r)
+//
 // is equivalent to:
-//     m1(m2(m3(r)))
+//
+//	m1(m2(m3(r)))
+//
 // When the request comes in, it will be passed to m1, then m2, then m3
 // and finally, the given resolverFunc
 // (assuming every middleware calls the following one).
 //
 // A chain can be safely reused by calling Then() several times.
-//     commonMiddlewares := QueryMiddlewares{authMiddleware, loggingMiddleware}
-//     healthResolver = commonMiddlewares.Then(resolveHealth)
-//     stateResolver = commonMiddlewares.Then(resolveState)
+//
+//	commonMiddlewares := QueryMiddlewares{authMiddleware, loggingMiddleware}
+//	healthResolver = commonMiddlewares.Then(resolveHealth)
+//	stateResolver = commonMiddlewares.Then(resolveState)
+//
 // Note that middlewares are called on every call to Then()
 // and thus several instances of the same middleware will be created
 // when a chain is reused in this way.
@@ -76,17 +134,23 @@ func (mws QueryMiddlewares) Then(resolver QueryResolver) QueryResolver {
 }
 
 // Then chains the middlewares and returns the final MutationResolver.
-//     MutationMiddlewares{m1, m2, m3}.Then(r)
+//
+//	MutationMiddlewares{m1, m2, m3}.Then(r)
+//
 // is equivalent to:
-//     m1(m2(m3(r)))
+//
+//	m1(m2(m3(r)))
+//
 // When the request comes in, it will be passed to m1, then m2, then m3
 // and finally, the given resolverFunc
 // (assuming every middleware calls the following one).
 //
 // A chain can be safely reused by calling Then() several times.
-//     commonMiddlewares := MutationMiddlewares{authMiddleware, loggingMiddleware}
-//     backupResolver = commonMiddlewares.Then(resolveBackup)
-//     configResolver = commonMiddlewares.Then(resolveConfig)
+//
+//	commonMiddlewares := MutationMiddlewares{authMiddleware, loggingMiddleware}
+//	backupResolver = commonMiddlewares.Then(resolveBackup)
+//	configResolver = commonMiddlewares.Then(resolveConfig)
+//
 // Note that middlewares are called on every call to Then()
 // and thus several instances of the same middleware will be created
 // when a chain is reused in this way.

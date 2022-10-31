@@ -539,20 +539,21 @@ func Parse(r Request) (Result, error) {
 //
 // The needVars parameter is passed in the case of upsert block.
 // For example, when parsing the query block inside -
-// upsert {
-//   query {
-//     me(func: eq(email, "someone@gmail.com"), first: 1) {
-//       v as uid
-//     }
-//   }
 //
-//   mutation {
-//     set {
-//       uid(v) <name> "Some One" .
-//       uid(v) <email> "someone@gmail.com" .
-//     }
-//   }
-// }
+//	upsert {
+//	  query {
+//	    me(func: eq(email, "someone@gmail.com"), first: 1) {
+//	      v as uid
+//	    }
+//	  }
+//
+//	  mutation {
+//	    set {
+//	      uid(v) <name> "Some One" .
+//	      uid(v) <email> "someone@gmail.com" .
+//	    }
+//	  }
+//	}
 //
 // The variable name v needs to be passed through the needVars parameter. Otherwise, an error
 // is reported complaining that the variable v is defined but not used in the query block.
@@ -918,9 +919,77 @@ func parseRecurseArgs(it *lex.ItemIterator, gq *GraphQuery) error {
 	return nil
 }
 
+func parseShowDeleted(it *lex.ItemIterator) (bool, error) {
+	var show bool
+
+	it.Next()
+
+	item := it.Item()
+
+	switch item.Typ {
+	case itemName:
+		v, err := getValueArg(item.Val)
+		if err != nil {
+			return show, fmt.Errorf("parseShowDeleted: %v", err)
+		}
+
+		switch v {
+		case "true":
+			show = true
+		case "false":
+			show = false
+		default:
+			return show, fmt.Errorf("parseShowDeleted: Invalid showDeleted value - %s", v)
+		}
+	default:
+		return show, fmt.Errorf("parseShowDeleted: Unexpected item type - %v", item.Typ)
+	}
+
+	return show, nil
+}
+
 // getQuery creates a GraphQuery object tree by calling getRoot
 // and goDeep functions by looking at '{'.
 func getQuery(it *lex.ItemIterator) (gq *GraphQuery, rerr error) {
+	// var showDeleted bool
+
+	// defer func() {
+	// 	switch showDeleted {
+	// 	case true:
+	// 		filter := &FilterTree{
+	// 			Func: &Function{
+	// 				Attr: "deletedAt",
+	// 				Name: "neq",
+	// 				Args: []Arg{{Value: "null"}},
+	// 			},
+	// 		}
+	// 		if gq.Filter == nil {
+	// 			gq.Filter = filter
+	// 		} else {
+	// 			gq.Filter = &FilterTree{
+	// 				Op:    "and",
+	// 				Child: []*FilterTree{gq.Filter, filter},
+	// 			}
+	// 		}
+	// 	case false:
+	// 		filter := &FilterTree{
+	// 			Func: &Function{
+	// 				Attr: "deletedAt",
+	// 				Name: "eq",
+	// 				Args: []Arg{{Value: "null"}},
+	// 			},
+	// 		}
+	// 		if gq.Filter == nil {
+	// 			gq.Filter = filter
+	// 		} else {
+	// 			gq.Filter = &FilterTree{
+	// 				Op:    "and",
+	// 				Child: []*FilterTree{gq.Filter, filter},
+	// 			}
+	// 		}
+	// 	}
+	// }()
+
 	// First, get the root
 	gq, rerr = getRoot(it)
 	if rerr != nil {
@@ -945,6 +1014,15 @@ L:
 		item := it.Item()
 		if item.Typ == itemName {
 			switch strings.ToLower(item.Val) {
+			case "showDeleted":
+				{
+					_, err := parseShowDeleted(it)
+					if err != nil {
+						return nil, err
+					}
+					// showDeleted = show
+
+				}
 			case "filter":
 				if seenFilter {
 					return nil, item.Errorf("Repeated filter at root")
@@ -2113,7 +2191,7 @@ func tryParseFacetList(it *lex.ItemIterator) (res facetRes, parseOk bool, err er
 
 // parseCascade parses the cascade directive.
 // Two formats:
-// 	1. @cascade
+//  1. @cascade
 //  2. @cascade(pred1, pred2, ...)
 func parseCascade(it *lex.ItemIterator, gq *GraphQuery) error {
 	item := it.Item()
